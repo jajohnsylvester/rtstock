@@ -20,9 +20,7 @@ def fetch_stock_data(symbol):
     response = requests.get(url)
     data = response.json()
     
-    if "Time Series (5min)" not in data:
-        st.error("Error fetching data. Ensure the symbol is correct and your API key is valid.")
-        return None
+
     
     df = pd.DataFrame.from_dict(data["Time Series (5min)"], orient='index')
     df.index = pd.to_datetime(df.index)
