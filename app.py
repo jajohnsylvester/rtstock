@@ -8,7 +8,7 @@ import time  # 1. Import the time module
 st.set_page_config(page_title="India Stock Dashboard", layout="wide")
 
 # --- API Configuration ---
-API_KEY = 'WSCFG3I31A53WEDR' 
+API_KEY = 'AAJXIIXR1HX6NHXY' 
 
 def fetch_stock_data(symbol):
     """
