@@ -8,7 +8,7 @@ st.set_page_config(page_title="India Stock Dashboard", layout="wide")
 
 # --- API Configuration ---
 # Get your free key at https://www.alphavantage.co/support/#api-key
-API_KEY = 'YOUR_ALPHA_VANTAGE_KEY' 
+API_KEY = 'WSCFG3I31A53WEDR' 
 
 def fetch_stock_data(symbol):
     """
