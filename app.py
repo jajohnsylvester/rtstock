@@ -16,7 +16,7 @@ def fetch_stock_data(symbol):
     """
     
     
-    url = f'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval=5min&apikey=AAJXIIXR1HX6NHXY'
+    url = f'https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol={symbol}&interval=5min&apikey=AAJXIIXR1HX6NHXY'
     response = requests.get(url)
     data = response.json()
     
