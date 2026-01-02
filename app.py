@@ -14,10 +14,7 @@ def fetch_stock_data(symbol):
     """
     Fetches intraday data for a given symbol.
     """
-    # 2. Add sleep here to wait for 60 seconds before making the API call
-    # This is useful if you are looping through symbols to avoid rate limits
-    st.warning("Waiting 60 seconds to respect API rate limits...")
-    time.sleep(60) 
+    
     
     url = f'https://www.alphavantage.co/query?function=TIME_SERIES_INTRADAY&symbol={symbol}&interval=5min&apikey={API_KEY}'
     response = requests.get(url)
@@ -74,5 +71,9 @@ if st.sidebar.button("Get Data"):
             
             if st.checkbox("Show Raw Data"):
                 st.write(df.tail(10))
+            # 2. Add sleep here to wait for 60 seconds before making the API call
+            # This is useful if you are looping through symbols to avoid rate limits
+            st.warning("Waiting 60 seconds to respect API rate limits...")
+            time.sleep(60)     
 else:
     st.info("Enter a stock symbol in the sidebar and click 'Get Data' to begin.")
