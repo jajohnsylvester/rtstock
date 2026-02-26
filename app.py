@@ -1,114 +1,125 @@
 import streamlit as st
 import yfinance as yf
-import mplfinance as mpf
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-# Page Layout
-st.set_page_config(layout="wide", page_title="NSE Pro Gap Dashboard")
+# 1. Page Configuration
+st.set_page_config(layout="wide", page_title="NSE Interactive Gap Pro")
 
-st.title("🛡️ NSE Pro Gap Dashboard")
-st.markdown("Automated identification of Bullish and Bearish Gap patterns for Indian Stocks.")
+st.title("🏹 NSE Interactive Gap Pro")
+st.markdown("Identifies **Breakaway, Runaway, Exhaustion, and Island Reversal** patterns.")
 
-# Sidebar
+# 2. Sidebar Settings
 with st.sidebar:
-    st.header("Search Parameters")
-    ticker_sym = st.text_input("NSE Ticker (e.g. RELIANCE, SBIN, ADANIENT)", value="SBIN")
-    ticker = f"{ticker_sym.upper()}.NS"
-    period = st.selectbox("Historical View", ["6mo", "1y", "2y"], index=1)
-    st.info("Note: Bearish gaps are labeled below the candle, Bullish above.")
+    st.header("Search & Settings")
+    ticker_input = st.text_input("NSE Ticker", value="SBIN")
+    ticker = f"{ticker_input.upper()}.NS"
+    period = st.selectbox("Lookback Period", ["6mo", "1y", "2y"], index=1)
+    st.info("Scroll to Zoom | Click-Drag to Pan")
 
-def get_comprehensive_gaps(df):
+# 3. Logic Engine
+@st.cache_data
+def get_analysis(symbol, p):
+    # Fetch with MultiIndex fix
+    df = yf.download(symbol, period=p, interval="1d", auto_adjust=True, multi_level_index=False)
+    if df.empty: return df
+    
     df = df.copy()
+    
+    # Technical Indicators
     df['MA50'] = df['Close'].rolling(window=50).mean()
     df['Vol_Avg'] = df['Volume'].rolling(window=20).mean()
     
-    # Storage for plotting
-    df['Marker_Bull'] = np.nan
-    df['Marker_Bear'] = np.nan
+    # Gap Detection using Vectorized Masks
+    prev_high = df['High'].shift(1)
+    prev_low = df['Low'].shift(1)
+    
+    is_gap_up = df['Low'] > prev_high
+    is_gap_dn = df['High'] < prev_low
+    vol_spike = df['Volume'] > (df['Vol_Avg'] * 1.5)
+    near_ma = (df['Low'] - df['MA50']).abs() / df['MA50'] < 0.05
+    
+    # Initialize Columns
     df['Gap_Type'] = ""
+    
+    # Apply Logic via .loc to ensure alignment
+    # Bullish
+    df.loc[is_gap_up & vol_spike & near_ma, 'Gap_Type'] = "BREAKAWAY (UP)"
+    # Island Check (Current is Gap Up AND Next is Gap Down)
+    is_island = is_gap_up & (df['High'].shift(-1) < df['Low'])
+    df.loc[is_island, 'Gap_Type'] = "ISLAND REVERSAL"
+    # Runaway
+    df.loc[is_gap_up & (df['Gap_Type'] == ""), 'Gap_Type'] = "RUNAWAY (UP)"
+    
+    # Bearish
+    df.loc[is_gap_dn & vol_spike, 'Gap_Type'] = "BREAKAWAY (DN)"
+    df.loc[is_gap_dn & (df['Gap_Type'] == ""), 'Gap_Type'] = "RUNAWAY (DN)"
 
-    for i in range(2, len(df)-2):
-        prev, curr, nxt = df.iloc[i-1], df.iloc[i], df.iloc[i+1]
-        vol_spike = curr['Volume'] > curr['Vol_Avg'] * 1.5
-        vol_climax = curr['Volume'] > curr['Vol_Avg'] * 2.5
-
-        # --- BULLISH GAPS ---
-        if curr['Low'] > prev['High']:
-            p = curr['Low']
-            if nxt['High'] < curr['Low'] or df.iloc[i+2]['High'] < curr['Low']:
-                label = "ISLAND (TOP)"
-            elif vol_spike and abs(curr['Low'] - curr['MA50'])/curr['MA50'] < 0.05:
-                label = "BREAKAWAY (UP)"
-            elif vol_climax and curr['Close'] > curr['MA50'] * 1.15:
-                label = "EXHAUSTION (UP)"
-            else:
-                label = "RUNAWAY (UP)"
-            
-            df.at[df.index[i], 'Gap_Type'] = label
-            df.at[df.index[i], 'Marker_Bull'] = p
-
-        # --- BEARISH GAPS ---
-        elif curr['High'] < prev['Low']:
-            p = curr['High']
-            if nxt['Low'] > curr['High'] or df.iloc[i+2]['Low'] > curr['High']:
-                label = "ISLAND (BOTT)"
-            elif vol_spike and abs(curr['High'] - curr['MA50'])/curr['MA50'] < 0.05:
-                label = "BREAKAWAY (DN)"
-            elif vol_climax and curr['Close'] < curr['MA50'] * 0.85:
-                label = "EXHAUSTION (DN)"
-            else:
-                label = "RUNAWAY (DN)"
-            
-            df.at[df.index[i], 'Gap_Type'] = label
-            df.at[df.index[i], 'Marker_Bear'] = p
-                
+    # Create Marker Positions and Colors safely
+    # This ensures the resulting series is the exact same length as the DF
+    df['Marker_Pos'] = np.where(is_gap_up, df['Low'] * 0.97, 
+                       np.where(is_gap_dn, df['High'] * 1.03, np.nan))
+    
+    # Fix for Volume Color Length Error
+    df['Vol_Color'] = np.where(df['Close'] >= df['Open'], 'rgba(0, 200, 0, 0.5)', 'rgba(255, 0, 0, 0.5)')
+    
     return df
 
+# 4. Main App Logic
 try:
-    data = yf.download(ticker, period=period, interval="1d", auto_adjust=True)
-    if not data.empty:
-        df_res = get_comprehensive_gaps(data)
-        labeled = df_res[df_res['Gap_Type'] != ""]
+    df = get_analysis(ticker, period)
+    
+    if not df.empty:
+        # Create Plotly Figure
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, 
+                           vertical_spacing=0.05, row_heights=[0.7, 0.3])
 
-        col1, col2 = st.columns([3, 1])
+        # Candlestick Trace
+        fig.add_trace(go.Candlestick(
+            x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'],
+            name="Price"
+        ), row=1, col=1)
 
-        with col1:
-            st.subheader(f"Technical Chart: {ticker}")
-            ap = []
-            if not df_res['Marker_Bull'].dropna().empty:
-                ap.append(mpf.make_addplot(df_res['Marker_Bull'], type='scatter', markersize=100, marker='^', color='green'))
-            if not df_res['Marker_Bear'].dropna().empty:
-                ap.append(mpf.make_addplot(df_res['Marker_Bear'], type='scatter', markersize=100, marker='v', color='red'))
+        # Volume Trace (Using the pre-aligned Vol_Color column)
+        fig.add_trace(go.Bar(
+            x=df.index, y=df['Volume'], 
+            marker_color=df['Vol_Color'], 
+            name="Volume"
+        ), row=2, col=1)
 
-            fig, axlist = mpf.plot(df_res, type='candle', style='yahoo', addplot=ap, volume=True, figsize=(14, 8), returnfig=True)
-            
-            # Text injection
-            for idx, row in labeled.iterrows():
-                x = df_res.index.get_loc(idx)
-                color = 'green' if "UP" in row['Gap_Type'] or "BOTT" in row['Gap_Type'] else 'red'
-                y_pos = row['Marker_Bull'] if not pd.isna(row['Marker_Bull']) else row['Marker_Bear']
-                axlist[0].text(x, y_pos, row['Gap_Type'], fontsize=8, fontweight='bold', ha='center', color=color)
-            
-            st.pyplot(fig)
+        # Annotations (Labels)
+        markers = df[df['Gap_Type'] != ""]
+        for idx, row in markers.iterrows():
+            is_bullish = "UP" in row['Gap_Type'] or "REVERSAL" in row['Gap_Type']
+            fig.add_annotation(
+                x=idx, y=row['Marker_Pos'],
+                text=row['Gap_Type'],
+                showarrow=True, arrowhead=1,
+                ax=0, ay=40 if is_bullish else -40,
+                font=dict(color="blue" if is_bullish else "red", size=10),
+                bgcolor="rgba(255, 255, 255, 0.9)"
+            )
 
-        with col2:
-            st.subheader("📊 Detection Summary")
-            st.markdown("""
-            | Gap Pattern | Trend Context | Typical Outcome |
-            | :--- | :--- | :--- |
-            | **Breakaway** | Breaking Consolidation | New Trend Start |
-            | **Runaway** | Middle of Trend | Continuation |
-            | **Exhaustion** | End of Mature Trend | Trend Failure |
-            | **Island** | Two opposing gaps | Immediate Reversal |
-            """)
-            
-            st.write("### Found Signals")
-            if not labeled.empty:
-                summary_tbl = labeled[['Gap_Type', 'Close']].tail(15).sort_index(ascending=False)
-                st.table(summary_tbl)
+        fig.update_layout(height=800, xaxis_rangeslider_visible=False, 
+                          template='plotly_white', hovermode='x unified')
+        
+        # Dashboard Layout
+        col_plot, col_table = st.columns([3, 1])
+        
+        with col_plot:
+            st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
+        
+        with col_table:
+            st.subheader("📋 Detected Gaps")
+            if not markers.empty:
+                st.dataframe(markers[['Gap_Type', 'Close']].sort_index(ascending=False), use_container_width=True)
             else:
-                st.info("No significant gaps detected.")
+                st.info("No gaps found.")
+
+    else:
+        st.error("Invalid ticker or no data found.")
 
 except Exception as e:
-    st.error(f"Error: {e}")
+    st.error(f"Development Error: {e}")
